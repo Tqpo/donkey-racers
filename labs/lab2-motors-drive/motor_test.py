@@ -8,12 +8,17 @@ Runs the ESC (drive motor) and servo (steering) through a series of tests:
   3. Throttle ramp forward (motor only)
   4. Combination grid (every throttle value x every steering value)
   5. Rapid changes (quick jumps between extremes)
-  6. Reverse (extra credit - uses the ESC's backward-mode protocol)
+  6. Reverse (extra credit - uses the ESC's backward-mode protocol,
+     switches forward <-> backward 3 times)
+
+Run everything:        python3 motor_test.py
+Run only reverse test: python3 motor_test.py --reverse
 
 SAFETY: put the car up on something so the wheels spin freely.
 Press Ctrl+C at any time and the car goes back to neutral.
 """
 
+import sys
 import time
 import board
 import busio
@@ -133,37 +138,71 @@ def rapid_changes():
     neutral()
 
 
+MODE_SWITCH_HOLD = 0.2   # seconds to hold each pulse while switching modes
+                         # (raise to 0.5 if your ESC doesn't switch)
+
+
 def enter_backward_mode():
-    """Protocol from the lab: neutral -> pulse below 1.5 -> neutral."""
+    """Protocol from the lab: neutral -> pulse between 1-1.5 ms -> neutral.
+    After this, pulses between 1-1.5 ms drive the car backward."""
     throttle(NEUTRAL)
-    time.sleep(0.2)
+    time.sleep(MODE_SWITCH_HOLD)
     throttle(1.3)
-    time.sleep(0.2)
+    time.sleep(MODE_SWITCH_HOLD)
     throttle(NEUTRAL)
-    time.sleep(0.2)
+    time.sleep(MODE_SWITCH_HOLD)
 
 
 def enter_forward_mode():
-    """Protocol from the lab: neutral -> pulse above 1.5 -> neutral."""
+    """Protocol from the lab: neutral -> pulse between 1.5-2 ms -> neutral.
+    After this, pulses between 1.5-2 ms drive the car forward."""
     throttle(NEUTRAL)
-    time.sleep(0.2)
+    time.sleep(MODE_SWITCH_HOLD)
     throttle(1.6)
-    time.sleep(0.2)
+    time.sleep(MODE_SWITCH_HOLD)
     throttle(NEUTRAL)
-    time.sleep(0.2)
+    time.sleep(MODE_SWITCH_HOLD)
 
 
-def reverse_test():
+def drive_backward(seconds):
+    """Ramp up backward speed, hold it, then ramp back down to neutral.
+    Lower pulse = faster backward, so we count DOWN from neutral."""
+    print(f"    <<< BACKWARD (up to {REVERSE_SPEED} ms)")
+    for ms in reversed(frange(REVERSE_SPEED, NEUTRAL, 0.05)):
+        throttle(ms)
+        time.sleep(0.3)
+    time.sleep(seconds)
+    for ms in frange(REVERSE_SPEED, NEUTRAL, 0.05):
+        throttle(ms)
+        time.sleep(0.2)
+
+
+def drive_forward(seconds, top=1.65):
+    """Ramp up forward speed, hold it, then ramp back down to neutral."""
+    print(f"    >>> FORWARD (up to {top} ms)")
+    for ms in frange(NEUTRAL, top, 0.05):
+        throttle(ms)
+        time.sleep(0.3)
+    time.sleep(seconds)
+    for ms in reversed(frange(NEUTRAL, top, 0.05)):
+        throttle(ms)
+        time.sleep(0.2)
+
+
+def reverse_test(cycles=3):
+    """Switch between forward and backward several times so both
+    directions are clearly visible on video."""
     print("\n[6] Reverse (extra credit)")
-    enter_backward_mode()
-    print(f"    backward at {REVERSE_SPEED} ms")
-    throttle(REVERSE_SPEED)
-    time.sleep(2)
+    for i in range(1, cycles + 1):
+        print(f"  cycle {i} of {cycles}")
 
-    enter_forward_mode()
-    print("    forward at 1.6 ms")
-    throttle(1.6)
-    time.sleep(2)
+        enter_backward_mode()
+        drive_backward(seconds=2)
+        time.sleep(1)               # pause at neutral so the switch is obvious
+
+        enter_forward_mode()
+        drive_forward(seconds=2)
+        time.sleep(1)
     neutral()
 
 
@@ -172,12 +211,15 @@ def reverse_test():
 def main():
     print("Motor/servo stress test - wheels should be OFF the ground.")
     print(f"ESC on channel {THROTTLE_CHANNEL}, servo on channel {STEERING_CHANNEL}")
+    # Run with --reverse to skip straight to the reverse test (handy for filming)
+    reverse_only = "--reverse" in sys.argv
     try:
         arm_esc()
-        steering_sweep()
-        throttle_ramp()
-        combination_grid()
-        rapid_changes()
+        if not reverse_only:
+            steering_sweep()
+            throttle_ramp()
+            combination_grid()
+            rapid_changes()
         reverse_test()
         print("\nAll tests done!")
     except KeyboardInterrupt:
